@@ -1,0 +1,82 @@
+{
+  "project_info": {
+    "project_number": "438660116902",
+    "project_id": "vtutimetable-e0630",
+    "storage_bucket": "vtutimetable-e0630.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:438660116902:android:efbca91945b304c18ddf67",
+        "android_client_info": {
+          "package_name": "com.oneedtech.onevtu"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "438660116902-arguci3cl66gjaia3c9dlj210sifv8ir.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBq4BvvaNuc7-rngrdnnl2kIi4v3EBDLNQ"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "438660116902-arguci3cl66gjaia3c9dlj210sifv8ir.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "438660116902-gfkrfb24u0a4roj78cm9r8ha9uahnqd7.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.example.vtuTimetable"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:438660116902:android:3805261b6361f5038ddf67",
+        "android_client_info": {
+          "package_name": "com.oneedtech.onevtu_admin"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "438660116902-arguci3cl66gjaia3c9dlj210sifv8ir.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBq4BvvaNuc7-rngrdnnl2kIi4v3EBDLNQ"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "438660116902-arguci3cl66gjaia3c9dlj210sifv8ir.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "438660116902-gfkrfb24u0a4roj78cm9r8ha9uahnqd7.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.example.vtuTimetable"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

@@ -1,0 +1,60 @@
+# Miscellaneous
+*.class
+*.log
+*.pyc
+*.swp
+.DS_Store
+.atom/
+.build/
+.buildlog/
+.history
+.svn/
+.swiftpm/
+migrate_working_dir/
+
+# IntelliJ related
+*.iml
+*.ipr
+*.iws
+.idea/
+
+# The .vscode folder contains launch configuration and tasks you configure in
+# VS Code which you may wish to be included in version control, so this line
+# is commented out by default.
+#.vscode/
+
+# Flutter/Dart/Pub related
+**/doc/api/
+**/ios/Flutter/.last_build_id
+.dart_tool/
+.flutter-plugins-dependencies
+.pub-cache/
+.pub/
+/build/
+/coverage/
+# Gradle's own output. The line above is anchored to the project root, so it
+# does not reach this one — `android/.gitignore` does not cover it either.
+/android/build/
+
+# Symbolication related
+app.*.symbols
+
+# Obfuscation related
+app.*.map.json
+
+# Android Studio will place build artifacts here
+/android/app/debug
+/android/app/profile
+/android/app/release
+
+# The upload key. `android/.gitignore` already covers the paths Flutter puts one
+# on, but that cannot reach a keystore kept at the repo root — one `git add -A`
+# away from a public remote. Losing control of it means anyone can sign an
+# update Play and every installed device accept as genuine.
+*.jks
+*.keystore
+
+# Agent/session transcripts — local working notes, not source. Same rule as the
+# student app's `.gitignore`, because the exports land here the same way.
+session-ses_*.md
+[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]-[0-9][0-9][0-9][0-9][0-9][0-9]-*.txt

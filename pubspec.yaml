@@ -1,0 +1,47 @@
+name: onevtu_admin
+description: "Admin console for One VTU — Supabase content CRUD and Cloudflare R2 file management."
+publish_to: 'none'
+
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.12.0
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  cupertino_icons: ^1.0.8
+  # Same client the student app uses, so RLS behaves identically here.
+  supabase_flutter: ^2.14.1
+  provider: ^6.1.2
+  # R2 keys live in Android Keystore, never in the APK.
+  flutter_secure_storage: ">=10.0.0 <11.0.0"
+  file_picker: 12.1.2
+  http: ^1.2.2
+  # HMAC-SHA256 for the AWS SigV4 signature R2 requires.
+  crypto: ^3.0.6
+  # ListObjectsV2 answers in XML.
+  xml: ^6.6.1
+  intl: ^0.19.0
+  url_launcher: ^6.3.2
+  # Push, so the review queue reaches whoever is on duty instead of waiting to be
+  # noticed. Same versions as the student app: the two subscribe to topics in one
+  # Firebase project and are drawn by the same plugin, so a version that behaves
+  # differently in one of them is a bug only one side can see.
+  #
+  # There is deliberately no firebase_options.dart here. This app is Android-only,
+  # so `android/app/google-services.json` plus the google-services Gradle plugin
+  # already are the configuration; a generated Dart copy of the same five ids
+  # would only be a second place for them to go stale.
+  firebase_core: ^3.8.0
+  firebase_messaging: ^15.1.5
+  flutter_local_notifications: ^18.0.1
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true
