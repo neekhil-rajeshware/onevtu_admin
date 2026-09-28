@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:onevtu_admin/data/admin_repository.dart';
+import 'package:onevtu_admin/r2/bucket_layout.dart';
 import 'package:onevtu_admin/schema/catalog.dart';
 import 'package:onevtu_admin/schema/field_spec.dart';
 import 'package:onevtu_admin/schema/gate_assets.dart';
@@ -271,6 +272,172 @@ void main() {
       expect(FieldCodec.validate(field, 'waiting for the key'), isNotNull);
       expect(FieldCodec.validate(field, '{"Paper": "tbd"}'), isNotNull);
       expect(FieldCodec.validate(field, '{"Paper": '), isNotNull);
+    });
+  });
+
+  group('pyqpSessionLabel', () {
+    test('spells a session column the way the form does', () {
+      expect(pyqpSessionLabel('june_july_2025'), 'June/July 2025');
+      expect(pyqpSessionLabel('dec_jan_2018'), 'Dec/Jan 2018');
+    });
+  });
+
+  group('pyqpSessionMatches', () {
+    // Real keys, below the subject folder: `vtu/scheme-2025/1st_year/py_qp/` is
+    // stripped before this is called. Both shapes are in the bucket at once.
+    test('a file named after the sitting belongs to it', () {
+      const files = {
+        'june_july_2025.pdf': 'june_july_2025',
+        'June-July 2025 Paper A.pdf': 'june_july_2025',
+        'BCS301 June July 2025.pdf': 'june_july_2025',
+        // Abbreviated, as a lot of the bucket is.
+        '3rd sem QP - jul 2025.pdf': 'june_july_2025',
+        'DEC_JAN_2019 solved.pdf': 'dec_jan_2019',
+        'BCS403 Dec 2019.pdf': 'dec_jan_2019',
+      };
+      for (final entry in files.entries) {
+        expect(pyqpSessionMatches(entry.key, entry.value), isTrue,
+            reason: entry.key);
+      }
+    });
+
+    test('the session folder counts, not just the file name', () {
+      // The common shape in the bucket, and the reason the path is passed rather
+      // than the name: `1BCEDS103.pdf` on its own names no sitting at all.
+      expect(
+        pyqpSessionMatches('DEC JAN 2026/1BCEDS103.pdf', 'dec_jan_2026'),
+        isTrue,
+      );
+      expect(
+        pyqpSessionMatches('JUNE JULY 2025/1BBEE105 QP.pdf', 'june_july_2025'),
+        isTrue,
+      );
+      // And the folder is not read as belonging to the other one either.
+      expect(
+        pyqpSessionMatches('DEC JAN 2026/1BCEDS103.pdf', 'june_july_2026'),
+        isFalse,
+      );
+    });
+
+    test('a file that says nothing at all is offered under every sitting', () {
+      // `1BBEE205.pdf` sitting straight in the subject folder. Refusing to guess
+      // is right — the person ticking it knows which sitting it was, and hiding
+      // it is what makes a folder look empty.
+      for (final session in const [
+        'dec_jan_2018',
+        'june_july_2025',
+        'dec_jan_2027',
+      ]) {
+        expect(pyqpSessionMatches('1BBEE205.pdf', session), isTrue,
+            reason: session);
+      }
+    });
+
+    test('a file named after the other sitting in the same year is not', () {
+      // The trap: both `dec_jan_2019` and `june_july_2019` carry 2019, and the
+      // folder holds both, so only the months tell them apart.
+      expect(pyqpSessionMatches('Dec-Jan 2019 Paper A.pdf', 'june_july_2019'),
+          isFalse);
+      expect(pyqpSessionMatches('June-July 2019 Paper A.pdf', 'dec_jan_2019'),
+          isFalse);
+      expect(pyqpSessionMatches('Dec-Jan 2019 Paper A.pdf', 'dec_jan_2019'),
+          isTrue);
+    });
+
+    test('another year is not this session', () {
+      expect(pyqpSessionMatches('june_july_2024.pdf', 'june_july_2025'), isFalse);
+      expect(pyqpSessionMatches('JUNE JULY 2024/x.pdf', 'june_july_2025'),
+          isFalse);
+    });
+
+    test('half a date is ambiguous, so it shows under both sittings', () {
+      // A year with no month, and a month with no year. Neither is enough to
+      // place the file, and refusing to guess shows it under both.
+      expect(pyqpSessionMatches('2019 Paper A.pdf', 'dec_jan_2019'), isTrue);
+      expect(pyqpSessionMatches('2019 Paper A.pdf', 'june_july_2019'), isTrue);
+      expect(pyqpSessionMatches('Dec-Jan Paper A.pdf', 'dec_jan_2019'), isTrue);
+      // Unless the half it does give is the other sitting's.
+      expect(pyqpSessionMatches('Dec-Jan Paper A.pdf', 'june_july_2019'),
+          isFalse);
+    });
+
+    test('a column that is not a session filters nothing out', () {
+      expect(pyqpSessionMatches('anything.pdf', 'id'), isTrue);
+    });
+  });
+
+  group('guessPaperLabel', () {
+    test('the ways a paper letter is written in a file name', () {
+      expect(guessPaperLabel('june_july_2025 Paper A.pdf'), 'Paper A');
+      expect(guessPaperLabel('Paper B - dec jan 2019.pdf'), 'Paper B');
+      expect(guessPaperLabel('BCS301 set c.pdf'), 'Paper C');
+    });
+
+    test('a name that does not say gets no label rather than a guess', () {
+      // A wrong chip costs two taps and so does no chip — but only one of them
+      // is wrong.
+      expect(guessPaperLabel('june_july_2025.pdf'), isEmpty);
+      expect(guessPaperLabel('A.pdf'), isEmpty);
+    });
+  });
+
+  group('solvedLabelFor', () {
+    test('says which paper it solves, and leaves anything else alone', () {
+      expect(solvedLabelFor('Paper A'), 'Solved A');
+      expect(solvedLabelFor(''), isEmpty);
+      // GATE's session labels are not paper labels and must not be mangled.
+      expect(solvedLabelFor('Session 1'), 'Session 1');
+    });
+  });
+
+  group('the py_qp catalog entry', () {
+    final spec = adminCatalog.firstWhere((t) => t.table == 'py_qp');
+    final sessions = [
+      for (final field in spec.fields)
+        if (pyqpSessionColumns.contains(field.column)) field,
+    ];
+
+    test('every session column is the same JSON editor as a GATE year', () {
+      // A single `fileUrl` here would write a bare URL, which the student app
+      // reads as one paper — so Paper B and C could not be entered at all.
+      expect(sessions, hasLength(pyqpSessionColumns.length));
+      expect(sessions.every((f) => f.type == FieldType.gateAssets), isTrue);
+      expect(
+        sessions.every((f) => f.bucketFolder == BucketFolder.questionPaper),
+        isTrue,
+      );
+    });
+
+    test('the session fields run newest first', () {
+      // The form renders fields in the order the catalog declares them and adds
+      // no sort of its own, so this list is literally the order an admin scrolls.
+      // Newest at the top is the whole point of it.
+      expect(sessions.first.column, 'june_july_2027');
+      expect(sessions.last.column, 'dec_jan_2018');
+    });
+
+    test('the picker can tell a session column from a GATE year', () {
+      // This is what the editor branches on to pass a session instead of a
+      // year: swap the folder and the session columns silently become years.
+      final gateField = adminCatalog
+          .firstWhere((t) => t.table == 'gatepyqs')
+          .fields
+          .firstWhere((f) => f.column == '2024');
+      expect(gateField.bucketFolder, BucketFolder.gatePaper);
+    });
+
+    test('accepts and refuses the same cells a year column does', () {
+      final field = sessions.first;
+      expect(FieldCodec.validate(field, ''), isNull);
+      expect(
+        FieldCodec.validate(
+          field,
+          '{"Paper": [{"label": "Paper A", "url": "https://d/a.pdf"}], '
+          '"Solved Papers": "https://d/s.pdf"}',
+        ),
+        isNull,
+      );
+      expect(FieldCodec.validate(field, 'waiting for the key'), isNotNull);
     });
   });
 }

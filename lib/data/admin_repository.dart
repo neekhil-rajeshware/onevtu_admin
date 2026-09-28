@@ -7,6 +7,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../schema/field_spec.dart';
 import '../schema/gate_assets.dart';
 import '../schema/named_documents.dart';
+import '../schema/subject_names.dart';
 import '../schema/table_spec.dart';
 
 /// One dropdown option.
@@ -19,6 +20,17 @@ class LookupOption {
   String get display =>
       (label == null || label!.isEmpty || label == value) ? value : '$value — $label';
 }
+
+/// A subject's name, and the scheme, semester and branch it is taught under.
+///
+/// A record rather than a class because there is nothing to do with one — it is
+/// read out of `subjects` and handed straight to the bucket layout.
+typedef SubjectRef = ({
+  String name,
+  String scheme,
+  String semester,
+  String branch,
+});
 
 /// A friendlier error than PostgREST's own wording for the two failures this app
 /// can actually produce.
@@ -149,35 +161,69 @@ class AdminRepository {
 
   /// Dropdown options, either rows of a reference table or the distinct values
   /// already present in a column.
-  /// The subject name behind a subject code, or null when nothing matches.
+  /// A subject's name, and where its files live — everything about it that a
+  /// `py_qp` row does not carry.
   ///
-  /// A `py_qp` row names the subject only by code, and the bucket files papers
-  /// under `py_qp/<code> <name>/` — so the folder cannot be worked out from the
-  /// row alone. Cached for the session: the same subject is uploaded to twenty
-  /// times, once per exam session.
-  Future<String?> subjectNameForCode(String code, {String schemeCode = ''}) async {
+  /// A `py_qp` row names its subject by code alone: it has no name column, and
+  /// its own `scheme_code`, `semester` and `branch_code` are not placements —
+  /// every row in that table is a first-year subject of the 2025 scheme, while
+  /// those columns hold group numbers (a `semester` of 1–8) and stray values.
+  /// So the subject is looked up rather than trusted.
+  ///
+  /// Matched on the code alone. `subjects` holds one scheme (196 rows of `1`,
+  /// 16 with none), so there is nothing for a scheme to disambiguate — and
+  /// filtering by the row's own would fail outright on the rows whose group
+  /// label is 2 or 3.
+  ///
+  /// Cached for the session: the same subject is filled in twenty times, once
+  /// per exam session.
+  Future<SubjectRef?> subjectForCode(String code) async {
     final trimmed = code.trim();
     if (trimmed.isEmpty) return null;
-    final cacheKey = '$schemeCode/$trimmed';
-    if (_subjectNames.containsKey(cacheKey)) return _subjectNames[cacheKey];
+    if (_subjects.containsKey(trimmed)) return _subjects[trimmed];
 
     try {
-      var query = _client.from('subjects').select('sub_name').or(
-            'sem_1_sub_code.eq.$trimmed,sem_2_sub_code.eq.$trimmed',
-          );
-      if (schemeCode.isNotEmpty) query = query.eq('scheme_code', schemeCode);
-      final row = await query.limit(1).maybeSingle();
-      final name = (row?['sub_name'] as String?)?.trim();
-      return _subjectNames[cacheKey] = (name?.isEmpty ?? true) ? null : name;
+      final row = await _client
+          .from('subjects')
+          .select('sub_name, scheme_code, semester, branch')
+          .or('sem_1_sub_code.eq.$trimmed,sem_2_sub_code.eq.$trimmed')
+          // A code can repeat — `1BCP308` on six rows, one per branch — and they
+          // agree about the semester, which is all the placement needs.
+          .limit(1)
+          .maybeSingle();
+      final name = (row?['sub_name'] as String?)?.trim() ?? '';
+      if (name.isEmpty) return _subjects[trimmed] = null;
+
+      String text(String column) => (row?[column]?.toString() ?? '').trim();
+      return _subjects[trimmed] = (
+        name: name,
+        scheme: text('scheme_code'),
+        semester: text('semester'),
+        branch: text('branch'),
+      );
     } catch (error) {
       // Only a folder name depends on this, and the key stays editable, so a
       // failure is not worth interrupting an upload for.
-      debugPrint('Subject name for $trimmed could not be read: $error');
+      debugPrint('Subject $trimmed could not be read: $error');
       return null;
     }
   }
 
-  final Map<String, String?> _subjectNames = {};
+  final Map<String, SubjectRef?> _subjects = {};
+
+  /// Every subject's name, keyed by each of its codes.
+  ///
+  /// One read for the whole table, for the collection list: it needs a name for
+  /// every row it shows, where [subjectForCode] would be a request per code.
+  /// The matching rule (two code columns, cells split on `/`) lives in
+  /// `schema/subject_names.dart`.
+  Future<Map<String, String>> subjectNames() async {
+    final rows = await _client
+        .from('subjects')
+        .select('sub_name, sem_1_sub_code, sem_2_sub_code')
+        .limit(1000);
+    return subjectNameIndex(rows);
+  }
 
   Future<List<LookupOption>> lookup(Lookup lookup) async {
     final columns = lookup.labelColumn == null

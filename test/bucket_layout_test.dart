@@ -104,6 +104,64 @@ void main() {
       );
     });
 
+    test('a py_qp row only lands right once the subject has corrected it', () {
+      // `py_qp.semester` is a group number (1–8) and `branch_code` is a stray on
+      // those rows, so the row as stored builds a folder that does not exist —
+      // the real `1BCEDS103` row says 4 and AG, for a first-year subject that
+      // lives under `1st_year`. RecordEditorScreen overwrites the three
+      // placement columns from `subjects` before calling this; this test is that
+      // overwrite written down. AE here is only because it is in `_names`.
+      const stored = {
+        'scheme_code': '1',
+        'semester': '4',
+        'branch_code': 'AE',
+        'sem_1_sub_code': '1BCEDS103',
+      };
+      const name = 'Computer-Aided Engineering Drawing for CSE stream';
+      expect(
+        bucketFolderFor(BucketFolder.questionPaper, stored,
+            names: _names, subjectName: name),
+        'vtu/scheme-2025/AE_Aeronautical_Engineering/4th_sem/py_qp/'
+            '1BCEDS103 $name/',
+      );
+
+      final corrected = {...stored, 'semester': '', 'branch_code': ''};
+      expect(
+        bucketFolderFor(BucketFolder.questionPaper, corrected,
+            names: _names, subjectName: name),
+        'vtu/scheme-2025/1st_year/py_qp/1BCEDS103 $name/',
+      );
+    });
+
+    test('a subject folder is found by its code, not by its built name', () {
+      // The real `py_qp/` level, as the bucket returns it. `subjectFolderName`
+      // would build the third entry, which does not exist — listing it returned
+      // nothing and read as an empty folder.
+      const folders = [
+        'vtu/scheme-2025/1st_year/py_qp/1BAIA103  1BAIA103_203_ BETC105x_205x Introduction to AI and Applications/',
+        'vtu/scheme-2025/1st_year/py_qp/1BBEE105 Basics of Electrical Engineering/',
+        'vtu/scheme-2025/1st_year/py_qp/1BMATC201 Calculus/',
+      ];
+      expect(
+        subjectFolderIn(folders, '1BAIA103'),
+        'vtu/scheme-2025/1st_year/py_qp/'
+            '1BAIA103  1BAIA103_203_ BETC105x_205x Introduction to AI and Applications/',
+      );
+      // A subject that does follow the shape is found anyway.
+      expect(subjectFolderIn(folders, '1BBEE105'),
+          'vtu/scheme-2025/1st_year/py_qp/1BBEE105 Basics of Electrical Engineering/');
+    });
+
+    test('a code is a whole word, and nothing filed means null', () {
+      const folders = [
+        'vtu/scheme-2025/1st_year/py_qp/1BBEE105 Basics of Electrical Engineering/',
+      ];
+      // `1BBEE1051` is a different subject, not this one.
+      expect(subjectFolderIn(folders, '1BBEE1051'), isNull);
+      expect(subjectFolderIn(folders, '1BCEDS103'), isNull);
+      expect(subjectFolderIn(folders, ''), isNull);
+    });
+
     test('a GATE paper is branch-wise and scheme-less', () {
       expect(
         bucketFolderFor(BucketFolder.gatePaper, {'code': 'AE'}, names: _names),

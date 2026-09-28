@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../r2/bucket_layout.dart';
 import 'field_spec.dart';
+import 'gate_assets.dart';
 import 'table_spec.dart';
 
 /// Option sources that recur across tables.
@@ -44,6 +45,17 @@ const _branchNameLookup = Lookup(
 /// The eight semesters, for audience filters where the column is an integer but
 /// only ever holds 1–8. Typing it invites a 9.
 const List<String> _semesterOptions = ['1', '2', '3', '4', '5', '6', '7', '8'];
+
+/// The semesters a subject or a paper row is filed under, in the order VTU
+/// numbers them — `1 & 2` is the whole of the first year, which is why those
+/// subjects come second rather than last.
+///
+/// A list of strings, not a range: `1 & 2` is why `subjects.semester` and
+/// `py_qp.semester` are text columns. Both tables use this one list so the two
+/// screens offer the same choice.
+const List<String> subjectSemesterOptions = [
+  '1', '2', '1 & 2', '3', '4', '5', '6', '7', '8',
+];
 const _categoryKeyLookup = Lookup(
   table: 'notification_categories',
   valueColumn: 'key',
@@ -51,27 +63,26 @@ const _categoryKeyLookup = Lookup(
   orderBy: 'sort_order',
 );
 
-/// The eight VTU exam sessions per scheme have a column each in `py_qp`. Listing
-/// them once keeps the form and the "which sessions are filled" summary honest.
+/// The twenty VTU exam sittings, one column each in `py_qp`, newest first:
+/// `june_july_2027` down to `dec_jan_2018`.
+///
+/// Listing them once is what keeps the form's twenty session fields in step with
+/// each other. The order is the form's order — it renders fields as they are
+/// declared, and puts no sort of its own on them — and it is reversed on purpose:
+/// the sitting being filled in is nearly always a recent one, and the last of
+/// these is eight years and twenty fields down the screen.
 const List<String> pyqpSessionColumns = [
-  'dec_jan_2018', 'june_july_2018',
-  'dec_jan_2019', 'june_july_2019',
-  'dec_jan_2020', 'june_july_2020',
-  'dec_jan_2021', 'june_july_2021',
-  'dec_jan_2022', 'june_july_2022',
-  'dec_jan_2023', 'june_july_2023',
-  'dec_jan_2024', 'june_july_2024',
-  'dec_jan_2025', 'june_july_2025',
-  'dec_jan_2026', 'june_july_2026',
-  'dec_jan_2027', 'june_july_2027',
+  'june_july_2027', 'dec_jan_2027',
+  'june_july_2026', 'dec_jan_2026',
+  'june_july_2025', 'dec_jan_2025',
+  'june_july_2024', 'dec_jan_2024',
+  'june_july_2023', 'dec_jan_2023',
+  'june_july_2022', 'dec_jan_2022',
+  'june_july_2021', 'dec_jan_2021',
+  'june_july_2020', 'dec_jan_2020',
+  'june_july_2019', 'dec_jan_2019',
+  'june_july_2018', 'dec_jan_2018',
 ];
-
-String _sessionLabel(String column) {
-  final parts = column.split('_');
-  final year = parts.removeLast();
-  final months = parts.map((p) => '${p[0].toUpperCase()}${p.substring(1)}');
-  return '${months.join('/')} $year';
-}
 
 /// Every table the console can edit.
 ///
@@ -97,8 +108,7 @@ final List<TableSpec> adminCatalog = [
     subtitleColumns: ['sem_1_sub_code', 'sem_2_sub_code', 'semester', 'branch'],
     filters: [
       FilterSpec('scheme_code', 'Scheme', lookup: schemeLookup),
-      FilterSpec('semester', 'Semester',
-          options: ['1', '2', '1 & 2', '3', '4', '5', '6', '7', '8']),
+      FilterSpec('semester', 'Semester', options: subjectSemesterOptions),
       FilterSpec('stream', 'Stream', lookup: _streamLookup),
       // The column holds a branch *code* (`AE`), not a name — unlike
       // `notifications.branch_code` — so this is the plain code lookup.
@@ -143,7 +153,7 @@ final List<TableSpec> adminCatalog = [
           type: FieldType.select, lookup: schemeLookup),
       FieldSpec('semester', 'Semester',
           type: FieldType.select,
-          options: ['1', '2', '1 & 2', '3', '4', '5', '6', '7', '8'],
+          options: subjectSemesterOptions,
           freeTextSelect: true,
           help: '"1 & 2" means the same subject runs in both first-year '
               'semesters — that is why this is text, not a number.'),
@@ -179,8 +189,9 @@ final List<TableSpec> adminCatalog = [
     table: 'py_qp',
     title: 'Previous question papers',
     description:
-        'One row per subject; one column per exam session. Fill a session with '
-        'the question-paper PDF.',
+        'One row per subject; one column per exam session. A session holds that '
+        'sitting\'s papers and solved papers — use "Build from bucket" to tick '
+        'the files rather than typing the JSON.',
     icon: Icons.description_outlined,
     group: 'Academic data',
     primaryKey: 'id',
@@ -188,8 +199,14 @@ final List<TableSpec> adminCatalog = [
     searchColumns: ['sem_1_sub_code', 'sem_2_sub_code'],
     titleColumns: ['sem_1_sub_code', 'sem_2_sub_code'],
     subtitleColumns: ['scheme_code', 'branch_code', 'semester'],
+    // The row is a code and nothing else, so the list appends the subject's own
+    // name after it. Matched through `subjects`, which holds the codes the app
+    // itself places students by.
+    subjectCodeColumns: ['sem_1_sub_code', 'sem_2_sub_code'],
     filters: [
       FilterSpec('scheme_code', 'Scheme', lookup: schemeLookup),
+      FilterSpec('semester', 'Semester', options: subjectSemesterOptions),
+      FilterSpec('stream', 'Stream', lookup: _streamLookup),
       FilterSpec('branch_code', 'Branch', lookup: branchLookup),
     ],
     fields: [
@@ -198,12 +215,38 @@ final List<TableSpec> adminCatalog = [
           type: FieldType.select, lookup: schemeLookup, required: true),
       FieldSpec('sem_1_sub_code', 'Semester 1 code'),
       FieldSpec('sem_2_sub_code', 'Semester 2 code'),
+      // The placement column: this is what decides which students see the paper.
+      // `branch_code` and `semester` below it are labels nothing reads.
+      FieldSpec('stream', 'Stream',
+          type: FieldType.select,
+          lookup: _streamLookup,
+          freeTextSelect: true,
+          help: 'Which students sit this paper: CSE, CV, ECE, EEE, ME, or ALL '
+              'for a paper every stream takes. This is the column that places '
+              'the paper in the app. Leave it empty and the subject code decides '
+              'instead.'),
       FieldSpec('branch_code', 'Branch',
-          type: FieldType.select, lookup: branchLookup, freeTextSelect: true),
-      FieldSpec('semester', 'Semester', type: FieldType.integer),
+          type: FieldType.select,
+          lookup: branchLookup,
+          freeTextSelect: true,
+          help: 'A label, not a branch anyone studies. It holds one stray code '
+              'per row and no student’s branch is ever this value — nothing '
+              'filters on it. Set Stream above instead.'),
+      FieldSpec('semester', 'Semester',
+          type: FieldType.select,
+          options: subjectSemesterOptions,
+          freeTextSelect: true,
+          help: '"1 & 2" means the paper covers both first-year semesters — '
+              'that is why this is text, not a number. A label: the app places '
+              'a paper by Stream, not by this.'),
+      // The same JSON a `gatepyqs` year cell holds — one sitting's paper and
+      // solved paper, each possibly several files, since VTU sets up to three
+      // papers (A, B, C) for the same sitting. Edited by ticking files in the
+      // subject's folder, and read back by the same parser.
       for (final column in pyqpSessionColumns)
-        FieldSpec(column, _sessionLabel(column),
-            type: FieldType.fileUrl, bucketFolder: BucketFolder.questionPaper),
+        FieldSpec(column, pyqpSessionLabel(column),
+            type: FieldType.gateAssets,
+            bucketFolder: BucketFolder.questionPaper),
       FieldSpec('created_at', 'Created', type: FieldType.dateTime, readOnly: true),
       FieldSpec('updated_at', 'Updated', type: FieldType.dateTime, readOnly: true),
     ],

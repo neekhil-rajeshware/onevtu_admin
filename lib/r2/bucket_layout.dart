@@ -15,6 +15,12 @@
 ///   scheme-2025/                                one per scheme year
 ///     1st_year/                                 semesters 1, 2 and "1 & 2"
 ///       py_qp/1BMATC101 Subject Name/
+///         june_july_2025.pdf                    one paper for the sitting
+///         dec_jan_2025 Paper A.pdf              up to three for one sitting
+///         dec_jan_2025 Paper B.pdf
+///         dec_jan_2025 Solved.pdf
+///         DEC JAN 2026/                         or a folder per sitting, which
+///           1BMATC101.pdf                       is how a lot of it was uploaded
 ///       notes/
 ///       deleted_old_files/2026-08-31_143205/
 ///     AE_Aeronautical_Engineering/              from semester 3, one per branch
@@ -28,6 +34,24 @@
 ///     AE_Aeronautical_Engineering/
 ///       answer_key/  papers/  solved_papers/     the year is in the file name
 /// ```
+///
+/// A subject's `py_qp/` folder holds **every sitting that subject has papers
+/// for**, so what says which one a paper belongs to is the file name *or* a
+/// folder of its own — and both shapes are in the bucket today:
+///
+/// ```
+/// 1BBEE105 Basics of Electrical Engineering/
+///   1BBEE205 - June-2026.pdf        sitting inside the file name
+///   DEC JAN 2026/                   sitting as a folder
+///     1BCEDS103.pdf
+/// ```
+///
+/// Nothing here creates the second shape — `bucketBaseNameFor` seeds a new
+/// upload's name with the session column (`dec_jan_2026.pdf`) — but people do
+/// make session folders by hand, so `pyqpSessionMatches` reads the path below the
+/// subject folder rather than the name alone. VTU sets up to three papers for one
+/// sitting (Paper A, Paper B, Paper C) plus a solved paper, and those are named
+/// onto the end of that stem by whoever uploads them.
 ///
 /// Note where the three document columns land: a **lab manual** goes straight
 /// into the semester folder, beside `py_qp/` rather than inside it, and is named
@@ -268,6 +292,15 @@ String? bucketFolderFor(
 
     case BucketFolder.notes:
     case BucketFolder.questionPaper:
+      // **A `py_qp` row's own `scheme_code`, `semester` and `branch_code` do not
+      // place it, and the caller must overwrite them before calling this.**
+      // Every row in that table is a first-year subject of the 2025 scheme,
+      // while those three columns hold group numbers (a `semester` of 1–8) and
+      // stray values — `1BCEDS103` is filed under `AG_Aeronautical_Engineering/
+      // 4th_sem/` if they are believed, and no such folder exists, so the picker
+      // lists nothing. `RecordEditorScreen._plannedDestination` replaces them
+      // with the subject's own, which is what this file expects: for every
+      // `py_qp` row today, `scheme-2025/1st_year/`.
       final semesterFolder = _semesterPath(row, names);
       if (semesterFolder == null) return null;
       // `notes/` holds every subject's notes and has no subject level, unlike
@@ -284,6 +317,39 @@ String? bucketFolderFor(
       if (subject.isEmpty) return '$semesterFolder$questionPaperFolder/';
       return '$semesterFolder$questionPaperFolder/$subject/';
   }
+}
+
+/// The subject folder under [folders] that is really this one's, or null when
+/// none of them is.
+///
+/// **The folder name is not derivable.** `subjectFolderName` builds
+/// `<code> <name>`, which is right for anything this app filed — but most of
+/// `py_qp/` was named by hand before it existed, and the names are not that
+/// shape: `1BAIA103`'s is `1BAIA103  1BAIA103_203_ BETC105x_205x Introduction
+/// to AI and Applications` where the layout builds `1BAIA103 Introduction to AI
+/// and Applications`. Listing it then returns nothing, which reads as an empty
+/// folder. So the bucket is asked, and only the code is matched — it is the one
+/// part of the name nobody gets wrong.
+///
+/// [folders] is the `CommonPrefixes` of the level above. Null is the ordinary
+/// answer for a subject nothing has been filed under yet, and the caller falls
+/// back to [subjectFolderName] to create it.
+String? subjectFolderIn(Iterable<String> folders, String code) {
+  final wanted = code.trim().toLowerCase();
+  if (wanted.isEmpty) return null;
+  // The code has to be the whole first word: `1BAIA1031` is a different subject.
+  final starts = RegExp('^${RegExp.escape(wanted)}(?![a-z0-9])');
+  for (final folder in folders) {
+    final leaf = folder.endsWith('/')
+        ? folder.substring(0, folder.length - 1)
+        : folder;
+    final slash = leaf.lastIndexOf('/');
+    final name = (slash == -1 ? leaf : leaf.substring(slash + 1)).trim();
+    if (starts.hasMatch(name.toLowerCase())) return folder;
+  }
+  // ponytail: the first match, when a subject has somehow been filed twice. The
+  // picker shows what it found, so a wrong one is visible rather than silent.
+  return null;
 }
 
 /// `<root>/<BRANCH_Code_Name>/` for a row that *is* a branch — a `gatepyqs` row

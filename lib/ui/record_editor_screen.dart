@@ -60,9 +60,21 @@ class _RecordEditorScreenState extends State<RecordEditorScreen> {
   bool _dirty = false;
   bool _saving = false;
 
+  /// The name behind this row's subject code, once it has been looked up.
+  ///
+  /// Only ever set on a `py_qp` row, and only so the screen says which subject
+  /// it is: that table has no name column, so its title would otherwise be a
+  /// code above twenty fields of exam sessions.
+  String _subjectName = '';
+
   bool get _isEditing => widget.row != null && !widget.duplicate;
 
   TableSpec get _spec => widget.spec;
+
+  /// True for a `py_qp` row: one subject, one field per exam session, and not a
+  /// single column in it that spells a subject name.
+  bool get _isPapersRow => _spec.fields
+      .any((field) => field.bucketFolder == BucketFolder.questionPaper);
 
   @override
   void initState() {
@@ -77,6 +89,19 @@ class _RecordEditorScreenState extends State<RecordEditorScreen> {
       _initial[field.column] = text;
       _controllers[field.column] = TextEditingController(text: text);
     }
+    if (_isPapersRow && widget.row != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _loadSubjectName());
+    }
+  }
+
+  /// Reads the subject's name for [_title]. A failure is cosmetic — the title
+  /// falls back to the codes it has — so nothing is reported.
+  Future<void> _loadSubjectName() async {
+    final subject = await context.read<AdminRepository>().subjectForCode(
+          _subjectCode(),
+        );
+    if (!mounted || subject == null) return;
+    setState(() => _subjectName = subject.name);
   }
 
   @override
@@ -273,11 +298,17 @@ class _RecordEditorScreenState extends State<RecordEditorScreen> {
 
   String _title() {
     if (widget.row == null) return 'New ${_spec.title.toLowerCase()}';
-    final parts = _spec.titleColumns
-        .map((c) => widget.row![c]?.toString() ?? '')
-        .where((v) => v.isNotEmpty);
-    if (parts.isEmpty) return '${widget.row![_spec.primaryKey]}';
-    return parts.join(' · ');
+    final headline = [
+      // The name goes first because the title is ellipsised: a code cut off the
+      // end is still how the row is found in the list, half a subject name is
+      // not.
+      if (_subjectName.isNotEmpty) _subjectName,
+      ..._spec.titleColumns
+          .map((c) => widget.row![c]?.toString().trim() ?? '')
+          .where((v) => v.isNotEmpty),
+    ];
+    if (headline.isEmpty) return '${widget.row![_spec.primaryKey]}';
+    return headline.join(' · ');
   }
 
   /// Writes one link column on its own, without waiting for Save.
@@ -315,11 +346,29 @@ class _RecordEditorScreenState extends State<RecordEditorScreen> {
   /// the semester you have just picked works before the first Save. Anything the
   /// layout cannot place comes back as nulls and the upload simply asks — see
   /// `bucket_layout.dart` on why a guessed folder is worse than a question.
-  Future<({String prefix, String? name})> _plannedDestination(
+  /// The subject a `py_qp` row is for: its semester-1 code, or semester 2 when
+  /// that is the one filled in. Shown in the picker's title, so the person can
+  /// see whose papers they are ticking.
+  String _subjectCode() {
+    final codes = _subjectCodes();
+    return codes.isEmpty ? '' : codes.first;
+  }
+
+  /// Both codes the row names its subject by — the same subject under two
+  /// semesters, and either may be the one filled in: 5 of the 55 `py_qp` rows
+  /// carry only the semester-2 code, and the folder is named after whichever the
+  /// person who made it happened to use.
+  List<String> _subjectCodes() => [
+        for (final column in const ['sem_1_sub_code', 'sem_2_sub_code'])
+          if ((_controllers[column]?.text ?? '').trim().isNotEmpty)
+            _controllers[column]!.text.trim(),
+      ];
+
+  Future<({String prefix, String? name, String subjectName})> _plannedDestination(
     FieldSpec field,
   ) async {
     if (field.bucketFolder == BucketFolder.flat) {
-      return (prefix: field.uploadPrefix ?? '', name: null);
+      return (prefix: field.uploadPrefix ?? '', name: null, subjectName: '');
     }
 
     final cache = context.read<LookupCache>();
@@ -342,35 +391,91 @@ class _RecordEditorScreenState extends State<RecordEditorScreen> {
       branches: await namesOf(branchLookup),
     );
 
-    // A question paper is filed under `py_qp/<code> <subject name>/`, and its own
-    // row only carries the code.
+    // A question paper is filed under `py_qp/<code> <subject name>/`, inside the
+    // semester the subject is really taught in.
+    //
+    // Read off the subject, not off this row: a `py_qp` row carries its own
+    // `scheme_code`, `semester` and `branch_code` and none of them is a
+    // placement — every row in the table is a first-year subject under
+    // `scheme-2025/1st_year/`, while those columns hold group numbers (a
+    // `semester` of 1–8) and stray values. Taken at face value they sent the
+    // picker to `AG_…/4th_sem/py_qp/…`, which does not exist, so it listed
+    // nothing at all.
     var subjectName = '';
     if (field.bucketFolder == BucketFolder.questionPaper) {
-      final code = row['sem_1_sub_code']?.isNotEmpty == true
-          ? row['sem_1_sub_code']!
-          : row['sem_2_sub_code'] ?? '';
-      subjectName = await repository.subjectNameForCode(
-            code,
-            schemeCode: row['scheme_code'] ?? '',
-          ) ??
-          '';
+      final subject = await repository.subjectForCode(_subjectCode());
+      subjectName = subject?.name ?? '';
+      if (subject != null) {
+        // A subject with no scheme recorded leaves the row's value alone rather
+        // than blanking a field the person can see is filled in.
+        if (subject.scheme.isNotEmpty) row['scheme_code'] = subject.scheme;
+        // Semester is overwritten even when the subject has none: no semester
+        // means first year, whereas the row's own number is a group label.
+        row['semester'] = subject.semester;
+        if (subject.branch.isNotEmpty) row['branch'] = subject.branch;
+      }
+    }
+
+    var prefix = bucketFolderFor(
+          field.bucketFolder,
+          row,
+          names: names,
+          subjectName: subjectName,
+        ) ??
+        '';
+
+    // The subject's folder is then asked of the bucket rather than trusted, for
+    // the same reason as above: most of `py_qp/` was named by hand and is not
+    // `<code> <name>` shape. See `subjectFolderIn`.
+    if (prefix.isNotEmpty && field.bucketFolder == BucketFolder.questionPaper) {
+      final real = await _filedSubjectFolder(prefix, _subjectCodes());
+      if (real != null) prefix = real;
     }
 
     return (
-      prefix: bucketFolderFor(
-            field.bucketFolder,
-            row,
-            names: names,
-            subjectName: subjectName,
-          ) ??
-          '',
+      prefix: prefix,
       name: bucketBaseNameFor(
         field.bucketFolder,
         row,
         column: field.column,
         subjectName: subjectName,
       ),
+      // Handed back so the picker can say whose papers these are. The code alone
+      // is what the *folder* is named after, not what the subject is called.
+      subjectName: subjectName,
     );
+  }
+
+  /// The subject's folder as the bucket actually spells it, or null to keep
+  /// [built] — which is right for a subject nothing has been filed under yet,
+  /// and is what makes the folder on the first upload.
+  ///
+  /// [codes] are tried in turn against one listing: the row may name the subject
+  /// by either of its two semester codes, and the folder by only one of them.
+  ///
+  /// Costs one listing per button press, and is deliberately not cached: the
+  /// person may have just uploaded into it from the Bucket screen.
+  Future<String?> _filedSubjectFolder(String built, List<String> codes) async {
+    final client = _resolveR2();
+    if (client == null || codes.isEmpty) return null;
+    // `…/py_qp/<name>/` → `…/py_qp/`, so the folders come back as prefixes.
+    final cut = built.lastIndexOf('/', built.length - 2);
+    if (cut == -1) return null;
+    try {
+      final listing = await client.list(
+        prefix: built.substring(0, cut + 1),
+        maxKeys: 1000,
+      );
+      for (final code in codes) {
+        final found = subjectFolderIn(listing.prefixes, code);
+        if (found != null) return found;
+      }
+      return null;
+    } catch (_) {
+      // Not worth interrupting an upload over: an unreachable bucket means the
+      // upload is about to fail loudly anyway, with a better message than this.
+      return null;
+    }
   }
 
   FileFieldActions _fileActions(bool configured) {
@@ -418,22 +523,40 @@ class _RecordEditorScreenState extends State<RecordEditorScreen> {
       onBuildGateAssets: (field) async {
         final client = _resolveR2();
         if (client == null) return null;
-        // The column name is the year — `2024` — which is what tells the picker
-        // which files in the branch folder are the ones being filed.
-        final year = int.tryParse(field.column.trim());
+
+        // Two columns hold this JSON, and the folder kind is what says which.
+        // A `gatepyqs` column *is* the year (`2024`), and its folder is the
+        // branch's. A `py_qp` column is the exam session (`june_july_2025`),
+        // whose year is part of the name, and whose folder is the subject's.
+        final isSession = field.bucketFolder == BucketFolder.questionPaper;
+        final year = isSession ? null : int.tryParse(field.column.trim());
+        final sessionKey = isSession ? field.column.trim() : '';
+
         final destination = await _plannedDestination(field);
         if (!mounted) return null;
-        if (year == null || destination.prefix.isEmpty) {
-          // No branch code yet, on a new row. Guessing a folder here would list
-          // somebody else's papers, which is worse than saying so.
+        if (destination.prefix.isEmpty || (!isSession && year == null)) {
+          // Guessing a folder here would list somebody else's papers, which is
+          // worse than saying so.
           showToast(
             context,
-            'Fill in the branch code first — that is what says which folder '
-            'the papers are in.',
+            isSession
+                ? 'Fill in the scheme, semester and subject code first — that '
+                    'is what says which folder the papers are in.'
+                : 'Fill in the branch code first — that is what says which '
+                    'folder the papers are in.',
             isError: true,
           );
           return null;
         }
+        // Whose papers are being ticked — the code to match against the folder,
+        // and the name because a code alone does not say what the subject is.
+        // Resolved just now rather than at open, because the code above is
+        // editable and the folder follows it.
+        final subjectLabel = isSession
+            ? [_subjectCode(), destination.subjectName]
+                .where((part) => part.isNotEmpty)
+                .join(' · ')
+            : '';
         return Navigator.of(context).push<String>(
           MaterialPageRoute(
             builder: (_) => GateAssetsScreen(
@@ -442,7 +565,11 @@ class _RecordEditorScreenState extends State<RecordEditorScreen> {
                   : '${destination.prefix}/',
               credentials: context.read<R2CredentialStore>().credentials,
               year: year,
-              branchCode: (_controllers['code']?.text ?? '').trim(),
+              sessionKey: sessionKey,
+              contextLabel: isSession
+                  ? _subjectCode()
+                  : (_controllers['code']?.text ?? '').trim(),
+              subjectLabel: subjectLabel,
               initialValue: _controllers[field.column]?.text ?? '',
             ),
           ),

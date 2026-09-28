@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 import '../data/admin_repository.dart';
 import '../data/lookup_cache.dart';
 import '../schema/field_spec.dart';
+import '../schema/subject_names.dart';
 import '../schema/table_spec.dart';
 import 'record_editor_screen.dart';
 import 'widgets/field_editor.dart';
@@ -55,12 +56,40 @@ class _CollectionScreenState extends State<CollectionScreen> {
 
   TableSpec get _spec => widget.spec;
 
+  /// Subject code to subject name, empty until it arrives — and only ever
+  /// populated for a spec that asks for it. See [_loadSubjectNames].
+  Map<String, String> _subjectNames = const {};
+
   @override
   void initState() {
     super.initState();
     _filters.addAll(widget.initialFilters);
     _scrollController.addListener(_onScroll);
-    WidgetsBinding.instance.addPostFrameCallback((_) => _load());
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _load();
+      _loadSubjectNames();
+    });
+  }
+
+  /// Reads the subject names once for the screen, not once per reload.
+  ///
+  /// Deliberately not awaited by [_load]: the rows are what the screen is for,
+  /// and a row renders fine without its subject's name — it gains one when this
+  /// lands. A reload would otherwise re-read 221 subjects on every filter tap.
+  ///
+  /// A failure is logged and nothing else, so it looks exactly like the names
+  /// still being on their way. That is allowed here and nowhere near the rows
+  /// themselves: the code is the row's identity and is already on screen, so a
+  /// missing name is a list without its gloss, not a list that is wrong.
+  Future<void> _loadSubjectNames() async {
+    if (_spec.subjectCodeColumns.isEmpty) return;
+    try {
+      final names = await context.read<AdminRepository>().subjectNames();
+      if (!mounted) return;
+      setState(() => _subjectNames = names);
+    } catch (error) {
+      debugPrint('Subject names could not be read: $error');
+    }
   }
 
   @override
@@ -197,8 +226,20 @@ class _CollectionScreenState extends State<CollectionScreen> {
         _spec.titleColumns.isEmpty ? [_spec.primaryKey] : _spec.titleColumns;
     final parts = columns
         .map((c) => row[c]?.toString().trim() ?? '')
-        .where((v) => v.isNotEmpty);
-    return parts.isEmpty ? '(untitled)' : parts.join(' · ');
+        .where((v) => v.isNotEmpty)
+        .toList();
+    if (parts.isEmpty) return '(untitled)';
+
+    // The subject's name after its code, where the spec names code columns: a
+    // code alone does not say which subject the row is. Appended only once the
+    // index has arrived, so a row never flashes a dash on its way in; a code the
+    // index does not know keeps the dash, which is how a mistyped code looks
+    // wrong here instead of looking like a subject nobody has named.
+    if (_subjectNames.isNotEmpty) {
+      parts.add(subjectNameFor(_subjectNames, row, _spec.subjectCodeColumns) ??
+          '—');
+    }
+    return parts.join(' · ');
   }
 
   String _subtitleFor(Map<String, dynamic> row) {

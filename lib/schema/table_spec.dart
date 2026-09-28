@@ -44,6 +44,7 @@ class TableSpec {
     this.canModerate = false,
     this.titleColumns = const [],
     this.subtitleColumns = const [],
+    this.subjectCodeColumns = const [],
     this.thumbnailColumn,
   });
 
@@ -96,6 +97,16 @@ class TableSpec {
 
   /// Columns joined, `label: value` style, for a row's second line.
   final List<String> subtitleColumns;
+
+  /// Columns holding a subject code, whose `subjects.sub_name` is appended to
+  /// the row's headline. Empty for every table but `py_qp`.
+  ///
+  /// A `py_qp` row is identified by a code and carries no name of its own, so
+  /// without this the list reads `1BMATC101 · 1BMATC201` and nothing more. The
+  /// name is read once for the whole table's worth of codes — see
+  /// `schema/subject_names.dart` — rather than joined, because there is no
+  /// foreign key between the two tables to join on.
+  final List<String> subjectCodeColumns;
 
   /// Column holding a picture of the row, shown as a thumbnail in the list.
   ///

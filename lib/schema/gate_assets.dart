@@ -187,6 +187,97 @@ int? gateYearIn(String text) {
   return match == null ? null : int.parse(match.group(0)!);
 }
 
+/// `june_july_2025` → `June/July 2025`.
+///
+/// The column name, spelt the way the admin app shows a session everywhere
+/// else — the form's field label and the picker's title agree.
+String pyqpSessionLabel(String sessionKey) {
+  final parts = sessionKey.split('_');
+  if (parts.length < 2) return sessionKey;
+  final year = parts.removeLast();
+  final months = parts.map((p) => '${p[0].toUpperCase()}${p.substring(1)}');
+  return '${months.join('/')} $year';
+}
+
+/// The months that identify each VTU sitting, in the spellings a file name is
+/// likely to carry. A session's *own* months put a file in it; the other
+/// sitting's months keep it out.
+const _sittingMonths = <String, List<String>>{
+  'dec_jan': ['dec', 'december', 'jan', 'january'],
+  'june_july': ['june', 'jun', 'july', 'jul'],
+};
+
+/// Whether a file in a subject's `py_qp/` folder belongs to [sessionKey].
+///
+/// Unlike a GATE branch folder — which splits its files into one folder per kind
+/// — a subject's folder holds every session of that subject, and a session is
+/// usually a *folder* of its own: `…/py_qp/1BCEDS103 …/DEC JAN 2026/x.pdf`. So
+/// [filePath] should be the file's path below the subject folder, not just its
+/// name — the name alone is often `1BCEDS103.pdf`, which says nothing about which
+/// sitting it is for.
+///
+/// Below the subject folder and not the whole key, deliberately: the key carries
+/// `scheme-2025`, and a year read out of that would be every session's year and
+/// would hide nothing.
+///
+/// A file is kept unless it says it belongs elsewhere — another year, or the
+/// other sitting's months. A file that says nothing at all is offered under every
+/// session, the same as a GATE file naming no year: the person ticking it knows
+/// which sitting it was, and hiding it would leave the folder looking empty.
+bool pyqpSessionMatches(String filePath, String sessionKey) {
+  final parts = sessionKey.toLowerCase().split('_');
+  // Not a session column — `id`, or a column added later. Nothing to filter by.
+  if (parts.length < 3) return true;
+
+  final sitting = parts.take(parts.length - 1).join('_');
+  final year = parts.last;
+  final text = _words(filePath);
+
+  // A year that is there and is not this one settles it.
+  final years = RegExp(r'(?:19|20)\d{2}')
+      .allMatches(text)
+      .map((match) => match.group(0))
+      .toSet();
+  if (years.isNotEmpty && !years.contains(year)) return false;
+
+  final own = _sittingMonths[sitting];
+  // Not a sitting this app knows: the year is all there is to go on.
+  if (own == null) return true;
+
+  bool names(Iterable<String> months) =>
+      months.any((month) => text.contains(' $month '));
+
+  if (names(own)) return true;
+  // Named after the *other* sitting and not this one: definitely not this one.
+  return !names(
+    _sittingMonths.entries
+        .where((entry) => entry.key != sitting)
+        .expand((entry) => entry.value),
+  );
+}
+
+/// Which paper of a sitting a file is, from its name — `Paper A` for a file
+/// called `… Paper A.pdf`, empty when the name does not say.
+///
+/// Deliberately conservative: only a letter written after the words "paper" or
+/// "set" counts, so a file called `A.pdf` gets no guess rather than a wrong one.
+/// A wrong chip costs the person two taps, and so does no chip — but only one of
+/// them is wrong.
+String guessPaperLabel(String fileName) {
+  final text = _words(fileName);
+  final match =
+      RegExp(r'\b(?:paper|set)\s*([a-z])\b').firstMatch(text);
+  return match == null ? '' : 'Paper ${match.group(1)!.toUpperCase()}';
+}
+
+/// The label a solved paper keeps when the file it came from was named after a
+/// paper — `Paper A solved` is "Solved A", since the button above it already
+/// says Solved.
+String solvedLabelFor(String paperLabel) =>
+    paperLabel.startsWith('Paper ')
+        ? 'Solved ${paperLabel.substring('Paper '.length)}'
+        : paperLabel;
+
 /// The folder names the bucket uses for each kind, directly under the branch:
 /// `vtu/gatepyqs/AE_Aeronautical_Engineering/answer_key/`.
 ///
