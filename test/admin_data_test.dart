@@ -260,6 +260,37 @@ void main() {
       });
     });
 
+    group('the profiles table', () {
+      final spec = specForTable('profiles')!;
+
+      test('is read-only from here', () {
+        // There is no admin INSERT policy on `profiles`, and the only UPDATE
+        // policy is `id = auth.uid()` — so a form offering to save would be
+        // refused by the database on every row but your own. Marking the columns
+        // read-only turns that into "Nothing changed", which is at least true.
+        expect(spec.canCreate, isFalse);
+        expect(spec.canDelete, isFalse);
+        expect(spec.writableFields, isEmpty);
+      });
+
+      test('filters branch by name, because that is what the column holds', () {
+        // The mirror of the announcement audience below: `profiles.branch` holds
+        // "Civil Engineering" and the push topics are built from that exact
+        // string, so a code filter would quietly match no one.
+        final branch =
+            spec.filters.firstWhere((f) => f.column == 'branch').lookup;
+        expect(branch?.table, 'branches');
+        expect(branch?.valueColumn, 'name');
+      });
+
+      test('can search by the things an admin is handed', () {
+        // Someone reports a problem by name, USN or college; the email is what
+        // is on file when none of those matches.
+        expect(spec.searchColumns, contains('usn'));
+        expect(spec.searchColumns, contains('college_name'));
+      });
+    });
+
     group('the store queue', () {
       final spec = specForTable('store')!;
 

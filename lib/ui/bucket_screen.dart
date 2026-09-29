@@ -330,83 +330,12 @@ class _BucketScreenState extends State<BucketScreen> {
       .map(sanitizeKeySegment)
       .join('/');
 
-  /// Deletes a folder and everything under it, recursively — the one operation
-  /// here that can break hundreds of rows at once, so it counts first and says
-  /// what it found before doing anything.
-  Future<void> _deleteFolder(String folder) async {
-    final client = _client;
-    if (client == null) return;
-
-    final counting = showProgressBarrier(context, 'Counting what is in there…');
-    final List<R2Object> contents;
-    try {
-      contents = await client.objectsUnder(folder);
-    } catch (error) {
-      counting.dismiss();
-      if (mounted) showToast(context, '$error', isError: true);
-      return;
-    }
-    counting.dismiss();
-    if (!mounted) return;
-
-    final files = contents.where((o) => !isFolderMarker(o.key)).toList();
-    final bytes = files.fold<int>(0, (sum, o) => sum + o.size);
-    final permanent = isInArchive(folder);
-    final name = _folderLabel(folder);
-
-    final confirmed = await confirmDestructive(
-      context,
-      title: files.isEmpty ? 'Delete this empty folder?' : 'Delete $name?',
-      message: [
-        if (files.isEmpty)
-          '$folder has no files in it.'
-        else
-          '${files.length} ${files.length == 1 ? 'file' : 'files'}'
-              ' (${formatBytes(bytes)}) under $folder.',
-        if (files.isNotEmpty)
-          permanent
-              // The archive is the one folder whose deletion is real.
-              ? 'These are already archived copies, so this is permanent.'
-              : 'They are moved to $archiveFolderName/ rather than destroyed, but '
-                  'their public links stop working straight away — any row still '
-                  'pointing at one will break.',
-        if (files.isNotEmpty) ...[
-          for (final file in files.take(3)) '· ${file.name}',
-          if (files.length > 3) '· and ${files.length - 3} more',
-        ],
-      ].join('\n'),
-      confirmLabel: files.isEmpty
-          ? 'Delete'
-          : 'Delete ${files.length} ${files.length == 1 ? 'file' : 'files'}',
-    );
-    if (!confirmed || !mounted) return;
-
-    final keys = contents.map((o) => o.key).toList();
-    final progress = showProgressBarrier(context, 'Deleting 1 of ${keys.length}…');
-    try {
-      await archiveAndDelete(
-        client,
-        keys: keys,
-        onProgress: (done, total) {
-          if (done < total) progress.label = 'Deleting ${done + 1} of $total…';
-        },
-      );
-    } catch (error) {
-      progress.dismiss();
-      if (mounted) {
-        // Part of it is gone: the count is not worth guessing at, so the listing
-        // is reloaded and shows exactly what survived.
-        showToast(context, 'Stopped part way: $error', isError: true);
-        await _load();
-      }
-      return;
-    }
-    progress.dismiss();
-    if (!mounted) return;
-    showToast(context, permanent ? 'Deleted $name' : 'Moved $name to $archiveFolderName/');
-    await _load();
-  }
-
+  /// Deletes one file, archiving it first.
+  ///
+  /// Deliberately one file at a time. A whole-folder delete existed and was
+  /// removed: it is the only operation here that can break hundreds of rows in
+  /// one tap, and the rows it breaks are in tables this app cannot see it break.
+  /// Deleting a folder's worth of files is now that many deliberate taps.
   Future<void> _delete(R2Object object) async {
     final client = _client;
     if (client == null) return;
@@ -625,19 +554,8 @@ class _BucketScreenState extends State<BucketScreen> {
                                     return ListTile(
                                       leading: const Icon(Icons.folder_outlined),
                                       title: Text(_folderLabel(folder)),
-                                      trailing: widget.pickMode
-                                          ? const Icon(Icons.chevron_right,
-                                              size: 18)
-                                          : IconButton(
-                                              tooltip: 'Delete folder',
-                                              icon: Icon(
-                                                Icons.delete_outline,
-                                                size: 20,
-                                                color: theme.colorScheme.error,
-                                              ),
-                                              onPressed: () =>
-                                                  _deleteFolder(folder),
-                                            ),
+                                      trailing: const Icon(Icons.chevron_right,
+                                          size: 18),
                                       onTap: () => _openFolder(folder),
                                     );
                                   }

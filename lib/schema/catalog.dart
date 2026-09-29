@@ -854,6 +854,58 @@ final List<TableSpec> adminCatalog = [
 
   // ───────────────────────────────── App ─────────────────────────────────
   TableSpec(
+    table: 'profiles',
+    title: 'Users',
+    description:
+        'Every account, in the profiles table. Read-only: a student owns their '
+        'row, and the app treats an admin edit as that student editing it.',
+    icon: Icons.people_outline,
+    group: 'App',
+    primaryKey: 'id',
+    orderBy: 'updated_at',
+    ascending: false,
+    // Read-only in both directions. There is no admin INSERT policy on
+    // `profiles`, and the only UPDATE policy is `id = auth.uid()` — so a save
+    // from here would be refused by the database on every row but your own. The
+    // columns are marked read-only rather than left to fail, because "Nothing
+    // changed" is a better answer than a permission error.
+    canCreate: false,
+    canDelete: false,
+    searchColumns: ['name', 'usn', 'email', 'college_name'],
+    titleColumns: ['name'],
+    subtitleColumns: ['usn', 'branch', 'current_semester', 'college_name'],
+    filters: [
+      // Branch *names*, not codes: `profiles.branch` holds "Civil Engineering",
+      // the same string the push topics are built from. See `_branchNameLookup`.
+      FilterSpec('branch', 'Branch', lookup: _branchNameLookup),
+      FilterSpec('scheme', 'Scheme', lookup: schemeLookup),
+      FilterSpec('current_semester', 'Semester', options: _semesterOptions),
+      FilterSpec('cycle', 'Cycle', options: ['Physics Cycle', 'Chemistry Cycle']),
+    ],
+    fields: [
+      FieldSpec('id', 'User id', readOnly: true),
+      FieldSpec('name', 'Name', readOnly: true),
+      FieldSpec('usn', 'USN', readOnly: true,
+          help: 'The university seat number — what a college is read off.'),
+      FieldSpec('branch', 'Branch', readOnly: true,
+          type: FieldType.select, lookup: _branchNameLookup,
+          help: 'The full name, as the push topics and the app use it.'),
+      FieldSpec('college_name', 'College', readOnly: true),
+      FieldSpec('current_semester', 'Semester',
+          type: FieldType.integer, readOnly: true),
+      FieldSpec('email', 'Email', readOnly: true),
+      FieldSpec('scheme', 'Scheme',
+          type: FieldType.select, lookup: schemeLookup, readOnly: true),
+      FieldSpec('cycle', 'Cycle', readOnly: true),
+      FieldSpec('is_admin', 'Admin flag', type: FieldType.boolean, readOnly: true,
+          help: 'Not what makes an admin. The console is gated on the '
+              'web_admins table — this flag is read by the app for its own '
+              'screens.'),
+      FieldSpec('updated_at', 'Updated', type: FieldType.dateTime, readOnly: true),
+    ],
+  ),
+
+  TableSpec(
     table: 'app_links',
     title: 'App links',
     description:

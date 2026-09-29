@@ -9,14 +9,15 @@ reads.
 
 ## What it can do
 
-- **Content tables** — create, edit, duplicate and delete rows in 17 tables:
+- **Content tables** — create, edit, duplicate and delete rows in 18 tables:
   subjects, previous-year papers, schemes, branches, streams, colleges, zones,
   GATE papers, resources, projects, jobs, exam timetable, formulas,
-  notifications, notification categories, store listings and app links.
+  notifications, notification categories, store listings, app links, and the
+  users table (read-only — see below).
 - **The bucket** — browse folders, upload, replace and delete objects in
-  `vtu-resources`, create and delete folders, and copy an object's public link.
-  Deleting a file or a folder moves it to its level's `deleted_old_files/` rather
-  than destroying it.
+  `vtu-resources`, create folders, and copy an object's public link. Deleting a
+  file moves it to its level's `deleted_old_files/` rather than destroying it.
+  Folders cannot be deleted at all.
 - **The join between them** — a link column (`subjects.syllabus_link`,
   `resources.resource_url`, the 20 session columns on `py_qp`, each GATE year)
   has an **Upload** button that puts the file in the bucket and writes the
@@ -32,6 +33,10 @@ reads.
   here, so nothing a student posts reaches the Store unreviewed. A new listing
   arrives as a notification on this phone, and the decision notifies the seller.
   Approve or turn down from the row itself: see below.
+- **Analytics** — how many users, split by branch, semester, scheme, cycle and
+  college, and how much of the library is actually filled in: syllabus PDFs,
+  question papers and GATE papers, each as a bar showing filled against missing.
+  See below.
 
 There are no per-table screens. One `TableSpec` per table in
 `lib/schema/catalog.dart` drives the list, the search box, the filter chips and
@@ -230,21 +235,73 @@ a new folder is a zero-byte marker object ending in `/`, which is what the
 Cloudflare dashboard writes too. The marker is hidden from the file list and
 disappears by itself once the folder has something real in it.
 
-Deleting is the **bin icon**, on a file row or a folder row, and it goes to that
-level's `deleted_old_files/` rather than destroying anything:
+**Folders cannot be deleted from here.** A whole-folder delete existed and was
+removed: it was the one operation that could break hundreds of database rows in
+a single tap, and the rows it broke are in tables this screen cannot show you.
+Emptying a folder is now one file at a time, which is the point.
 
-- **A folder** is counted first — the confirmation says how many files, how much,
-  and names the first few — and then goes over one file at a time, showing
-  progress. Everything under it goes, however deep. If a request fails it stops
-  there: what has been deleted is in the archive, and the rest is untouched.
+Deleting **a file** is the bin icon in its row's menu, and it goes to that level's
+`deleted_old_files/` rather than destroying anything:
+
 - **A file** is copied to the archive and then removed, the same as a replace.
 - **Inside a `deleted_old_files/` it is permanent.** Nothing is archived twice —
   otherwise the bin could never be emptied — so a delete in there is the real
-  one. That is also how you empty one: delete the dated folders.
+  one. That is also how you empty one: delete the files in the dated folders.
 
 Nothing prunes the archive on its own, and it is public like the rest of the
 bucket, so an archived file's URL still works for anyone who kept it. To restore,
 open the archived file and upload it back over the current key.
+
+## Analytics
+
+**Analytics**, the second card on the dashboard, is two questions on one screen.
+
+**Who is using the app.** The total, how many profiles are complete, and how many
+are missing something — then the same population split by branch, semester,
+scheme, cycle and college, largest first. A profile counts as complete with a
+name, USN, branch, college, scheme and semester all filled in. The app filters
+subjects and papers by branch and scheme, so a student with an empty branch sees
+everything — which is why the incomplete count is on the screen at all.
+
+**How much of the library is filled in.** Six bars: syllabus PDFs, question
+papers (subjects with a paper, then the sessions themselves), GATE papers
+(branches with a paper, then the years themselves), and study material. Colour is
+the answer to "which one do I work on": red under half, amber to 90%, the normal
+accent above that.
+
+Two readings that look similar and are not: **46 of 205** subjects have at least
+one question paper, while only **69 of 4100** exam sessions are filled. The first
+says coverage is thin, the second says it is barely started. Both are on screen
+because either one alone is misleading.
+
+Everything is counted live, on the tap. There is no cache and no nightly job — a
+number that disagrees with the table under it is worse than a slow one.
+
+**Why it needs its own function.** The counts come from `admin_analytics()` in
+the database (`docs/sql/041_admin_analytics.sql`), not from the app adding up
+rows. `profiles` is readable by an admin but the grouping is not something
+PostgREST can do, and counting client-side would mean pulling every profile row
+over a phone connection. `py_qp` keeps its links in one column per exam session —
+twenty of them — so "does this subject have a paper" is an OR across all twenty
+in SQL and a twenty-clause query string in Dart. The function also counts session
+columns it has never heard of, so a new exam session next year needs no change
+anywhere.
+
+## The users table
+
+**Users** lists the profiles table: every account, with its branch, semester,
+college and scheme, searchable by name, USN, email or college, and filterable by
+branch, scheme, semester and cycle.
+
+It is **read-only**, and deliberately. There is no admin INSERT policy on
+`profiles`, and the only UPDATE policy is `id = auth.uid()` — so an admin editing
+somebody else's row would be refused by the database on every row but their own.
+The columns are marked read-only rather than left to fail, so saving says
+"Nothing changed" instead of showing a permission error.
+
+The **Admin flag** column is not what makes an admin, whatever it says. The
+console is gated on the `web_admins` table; `profiles.is_admin` is a flag the
+student app reads for its own screens.
 
 ## Sending an announcement
 
@@ -420,7 +477,8 @@ lib/
     table_spec.dart         how one table is listed and searched
     catalog.dart            all 17 tables — the file to edit
   ui/
-    dashboard_screen.dart   the bucket, then the table groups
+    dashboard_screen.dart   the bucket, the analytics, then the table groups
+    analytics_screen.dart   users and link coverage, as bars
     collection_screen.dart  one list screen for every table
     record_editor_screen.dart  one form for every table
     bucket_screen.dart      R2 browser, also used as a file picker

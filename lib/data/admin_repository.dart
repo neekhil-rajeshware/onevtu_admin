@@ -44,6 +44,78 @@ class AdminWriteException implements Exception {
   String toString() => hint == null ? message : '$message\n$hint';
 }
 
+/// One bar on the analytics screen: [value] out of [cap].
+///
+/// A record rather than a class — it is drawn and thrown away, and there is
+/// nothing to do with one. [detail] is the second half of a link bar's label
+/// ("Question papers · subjects with at least one paper") and empty on a user
+/// bar, whose label is the whole story.
+typedef StatBar = ({String label, String detail, int value, int cap});
+
+/// What the analytics screen draws.
+typedef Analytics = ({
+  int users,
+  int completeProfiles,
+
+  /// Bars keyed by dimension — `branch`, `semester`, `scheme`, `cycle`,
+  /// `college` — each already sorted largest first, and each measured against
+  /// the whole user count, so a bar reads as a share of everyone.
+  Map<String, List<StatBar>> usersBy,
+  List<StatBar> links,
+});
+
+/// Reads `admin_analytics()`'s jsonb into the bars the screen draws.
+///
+/// Top-level and public, rather than inlined in [AdminRepository.analytics],
+/// because it is the one part of that call that can be tested without a database
+/// — and it is the part that breaks silently. The shape is a handshake with
+/// `docs/sql/041_admin_analytics.sql`: rename a key on either side and the screen
+/// does not error, it draws a zero. `analytics_test.dart` holds a real payload.
+Analytics parseAnalytics(Object? response) {
+  final root = _map(response);
+  final users = _map(root['users']);
+  final total = _int(users['total']);
+
+  return (
+    users: total,
+    completeProfiles: _int(users['complete']),
+    // Every user bar is measured against the whole population, so a branch with
+    // 6 of 18 users reads as a third rather than as a full bar.
+    usersBy: {
+      for (final entry in _map(users['bars']).entries)
+        entry.key: _statBars(entry.value, cap: total),
+    },
+    // A link bar carries its own total: "69 of 4100 sessions" is not a share of
+    // anything else on the screen.
+    links: _statBars(root['links']),
+  );
+}
+
+/// Every bar in a jsonb array, or nothing when the key is absent or mistyped.
+///
+/// A user bar counts users under `count`; a link bar counts filled rows under
+/// `filled`. [cap] non-zero overrides the bar's own `total` with the caller's.
+List<StatBar> _statBars(Object? raw, {int cap = 0}) {
+  if (raw is! List) return const [];
+  return [
+    for (final entry in raw)
+      if (entry is Map)
+        (
+          label: entry['label']?.toString() ?? '',
+          detail: entry['detail']?.toString() ?? '',
+          value: _int(entry['count'] ?? entry['filled']),
+          cap: cap == 0 ? _int(entry['total']) : cap,
+        ),
+  ];
+}
+
+Map<String, dynamic> _map(Object? raw) =>
+    raw is Map ? raw.cast<String, dynamic>() : const {};
+
+/// jsonb numbers arrive as `int` through the client's decoder; the string case
+/// is for the day one comes back quoted.
+int _int(Object? value) => value is int ? value : int.tryParse('$value') ?? 0;
+
 /// Generic CRUD over any [TableSpec]. There is one of these for the whole app;
 /// nothing here knows the name of a single table.
 class AdminRepository {
@@ -250,6 +322,22 @@ class AdminRepository {
       options.sort((a, b) => a.value.compareTo(b.value));
     }
     return options;
+  }
+
+  /// The counts behind the analytics screen.
+  ///
+  /// One RPC rather than a dozen queries, and it has to be a server call for two
+  /// separate reasons. `profiles` is owner-only apart from its admin policy, so
+  /// grouping users by branch client-side means pulling every profile row over a
+  /// phone connection to count them. And `py_qp` keeps its links in one column
+  /// per exam session — twenty of them — so "does this subject have a paper" is
+  /// an OR across all twenty. See `docs/sql/041_admin_analytics.sql`.
+  Future<Analytics> analytics() async {
+    try {
+      return parseAnalytics(await _client.rpc('admin_analytics'));
+    } on PostgrestException catch (error) {
+      throw AdminWriteException(error.message, hint: _hintFor(error));
+    }
   }
 
   /// PostgREST's `or=` takes a comma-separated list inside parentheses, so a

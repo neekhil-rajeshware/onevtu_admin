@@ -6,6 +6,7 @@ import '../data/admin_repository.dart';
 import '../r2/r2_credentials.dart';
 import '../schema/catalog.dart';
 import '../schema/table_spec.dart';
+import 'analytics_screen.dart';
 import 'bucket_screen.dart';
 import 'collection_screen.dart';
 import 'r2_settings_screen.dart';
@@ -94,14 +95,32 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
           // The bucket comes first: it is where the files behind every link
           // column live, and the link columns are the reason this app exists.
-          _BucketCard(
-            configured: r2.isComplete,
-            bucket: r2.bucket,
-            onOpen: () => Navigator.of(context).push(
-              MaterialPageRoute(builder: (_) => const BucketScreen()),
+          _NavCard(
+            icon: Icons.cloud_outlined,
+            title: 'Files in Cloudflare R2',
+            subtitle: r2.isComplete
+                ? '${r2.bucket} — upload, replace or delete the PDFs and images '
+                    'the links point at'
+                : 'Add your R2 keys to manage files from here',
+            trailing: Icon(
+                r2.isComplete ? Icons.chevron_right : Icons.key_outlined,
+                size: 18),
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (_) => r2.isComplete
+                    ? const BucketScreen()
+                    : const R2SettingsScreen(),
+              ),
             ),
-            onConfigure: () => Navigator.of(context).push(
-              MaterialPageRoute(builder: (_) => const R2SettingsScreen()),
+          ),
+
+          const SizedBox(height: 8),
+          _NavCard(
+            icon: Icons.insights_outlined,
+            title: 'Analytics',
+            subtitle: 'How many users, and how much of the library is filled in',
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const AnalyticsScreen()),
             ),
           ),
 
@@ -207,18 +226,21 @@ class _TableCard extends StatelessWidget {
   }
 }
 
-class _BucketCard extends StatelessWidget {
-  const _BucketCard({
-    required this.configured,
-    required this.bucket,
-    required this.onOpen,
-    required this.onConfigure,
+/// A tappable card above the table list — the bucket, the analytics screen.
+class _NavCard extends StatelessWidget {
+  const _NavCard({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.onTap,
+    this.trailing = const Icon(Icons.chevron_right, size: 18),
   });
 
-  final bool configured;
-  final String bucket;
-  final VoidCallback onOpen;
-  final VoidCallback onConfigure;
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final VoidCallback onTap;
+  final Widget trailing;
 
   @override
   Widget build(BuildContext context) {
@@ -226,7 +248,7 @@ class _BucketCard extends StatelessWidget {
     return Card(
       margin: EdgeInsets.zero,
       child: InkWell(
-        onTap: configured ? onOpen : onConfigure,
+        onTap: onTap,
         borderRadius: BorderRadius.circular(12),
         child: Padding(
           padding: const EdgeInsets.all(16),
@@ -239,30 +261,21 @@ class _BucketCard extends StatelessWidget {
                   color: theme.colorScheme.primary.withValues(alpha: 0.14),
                   borderRadius: BorderRadius.circular(11),
                 ),
-                child: Icon(Icons.cloud_outlined,
-                    color: theme.colorScheme.primary),
+                child: Icon(icon, color: theme.colorScheme.primary),
               ),
               const SizedBox(width: 14),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('Files in Cloudflare R2',
-                        style: theme.textTheme.titleSmall),
+                    Text(title, style: theme.textTheme.titleSmall),
                     const SizedBox(height: 3),
-                    Text(
-                      configured
-                          ? '$bucket — upload, replace or delete the PDFs and '
-                              'images the links point at'
-                          : 'Add your R2 keys to manage files from here',
-                      style: theme.textTheme.bodySmall,
-                    ),
+                    Text(subtitle, style: theme.textTheme.bodySmall),
                   ],
                 ),
               ),
               const SizedBox(width: 6),
-              Icon(configured ? Icons.chevron_right : Icons.key_outlined,
-                  size: 18),
+              trailing,
             ],
           ),
         ),
